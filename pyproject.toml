@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools", "wheel", "Cython>=3.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pybl"
+version = "0.1.0"
+description = "A fast Battle Line library for Python"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+]
+
+[dependency-groups]
+dev = [
+    "cython>=3.0",
+    "setuptools>=75.0",
+    "pytest>=8.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

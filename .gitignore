@@ -1,0 +1,11 @@
+.DS_Store
+/.vscode
+/.venv
+/build
+/dist
+*.egg-info
+__pycache__/
+.pytest_cache/
+/pybl/pybl.cpp
+*.so
+*.pyd
