@@ -1,4 +1,6 @@
 # PyBL
+[![CI](https://github.com/fukuchy/PyBL/actions/workflows/ci.yml/badge.svg)](https://github.com/fukuchy/PyBL/actions/workflows/ci.yml)
+
 Pythonから利用可能なバトルライン (戦術カード無し) のライブラリです。対局状態の管理、合法手の列挙、フラッグの確保判定をC++で実装し、Cythonを通してPythonから呼び出します。
 ルールは [rule/ruleNoTactics.md](rule/ruleNoTactics.md) に従います。
 
@@ -25,6 +27,8 @@ uv run python setup.py build_ext --inplace
 uv run pytest
 uv run python benchmarks/bench_playout.py
 ```
+
+GitHub Actions で Linux / macOS / Windows と Python 3.10 / 3.13 の組み合わせについて、sdist からのビルドとテストを行っています ([.github/workflows/ci.yml](.github/workflows/ci.yml))。
 
 ## ディレクトリ構成
 

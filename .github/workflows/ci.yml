@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: test (${{ matrix.os }}, Python ${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ["3.10", "3.13"]
+    env:
+      # ランナー固有の命令セットに依存しないようにビルドする
+      PYBL_PORTABLE: "1"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      # sdist を作成してそこからインストールすることで, 配布物に必要なファイルが揃っていることも確認する
+      - name: Build sdist
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build --sdist
+
+      - name: Install from sdist
+        shell: bash
+        run: python -m pip install dist/*.tar.gz pytest
+
+      # tests ディレクトリから実行し, リポジトリ内の pybl ではなくインストールされた pybl を読み込ませる
+      - name: Test
+        working-directory: tests
+        run: python -m pytest -q
+
+      - name: Benchmark
+        working-directory: tests
+        run: python ../benchmarks/bench_playout.py -n 20000
