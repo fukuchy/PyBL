@@ -1,0 +1,2 @@
+recursive-include pybl *.h *.cpp *.pyx *.pyi py.typed
+exclude pybl/pybl.cpp
