@@ -8,6 +8,8 @@
 #include "flag.h"
 #include "formation.h"
 #include "move.h"
+#include "movegen.h"
+#include "observation.h"
 #include "utils/bitmanip.h"
 #include "utils/random.h"
 
@@ -35,14 +37,7 @@ namespace battleline
         bool is_terminal() const { return this->game_result != NOT_OVER; }
 
         // 勝者. 引き分けまたは未終局なら NULL_PLAYER
-        int8_t winner() const
-        {
-            if (this->game_result == FIRST_WIN)
-                return FIRST;
-            if (this->game_result == SECOND_WIN)
-                return SECOND;
-            return NULL_PLAYER;
-        }
+        int8_t winner() const { return result_to_winner(this->game_result); }
 
         // 両者の連続パスにより強制終局したかどうか
         bool is_forced_termination() const { return this->forced_termination; }
@@ -66,7 +61,7 @@ namespace battleline
         Strength flag_strength(int32_t flag, int8_t player) const { return this->flags[flag].strength(player); }
 
         // player がカードを配置可能なフラッグ (ビットマスク)
-        uint16_t placeable_flags(int8_t player) const;
+        uint16_t placeable_flags(int8_t player) const { return battleline::placeable_flags(this->flags, player); }
 
         // 合法手を out に書き込み, その数を返す. out には MAX_LEGAL_MOVES 以上の領域が必要.
         // 配置可能な手が無ければ PASS_MOVE のみを返す. 終局後は0を返す
@@ -84,6 +79,13 @@ namespace battleline
         // player から見えないカード (相手の手札と山札) をランダムに再配分する.
         // 過去の補充の記録と整合しなくなるため, undo の履歴は破棄される
         void determinize(int8_t player, uint64_t seed);
+
+        // player から見える情報のみを取り出す
+        Observation observe(int8_t player) const;
+
+        // obs と矛盾しない局面を設定する. obs.player から見えないカードは相手の手札と山札にランダムに配分される.
+        // obs が不整合な場合は std::invalid_argument を送出する. undo の履歴は破棄される
+        void sample_from_observation(const Observation& obs, uint64_t seed);
 
         // 終局までランダムに着手し, 対局結果を返す (この状態自体を終局まで進める)
         int8_t random_playout(uint64_t seed);

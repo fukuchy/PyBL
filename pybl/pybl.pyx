@@ -95,6 +95,34 @@ cdef extern from "cpp/card_iterator.h":
         int32_t size() const
 
 
+cdef extern from "cpp/observation.h":
+    cdef cppclass CObservation "battleline::Observation":
+        int8_t player
+        int8_t stm
+        int8_t first
+        int8_t game_result
+        cbool forced_termination
+        int8_t consecutive_passes
+        uint64_t hand
+        uint64_t unseen
+        uint64_t board
+        int32_t opponent_hand_count
+        int32_t deck_count
+        cbool operator==(const CObservation&) const
+        cbool is_terminal() const
+        int8_t winner() const
+        cbool is_my_turn() const
+        int32_t hand_count(int8_t player) const
+        uint16_t claimed_flags(int8_t player) const
+        int8_t flag_owner(int32_t flag) const
+        int8_t flag_first_completer(int32_t flag) const
+        int32_t flag_card_count(int32_t flag, int8_t player) const
+        int8_t flag_card(int32_t flag, int8_t player, int32_t slot) const
+        int32_t flag_strength(int32_t flag, int8_t player) const
+        uint16_t placeable_flags(int8_t player) const
+        int32_t get_legal_moves(int16_t* out) const
+
+
 cdef extern from "cpp/game_state.h":
     cdef cppclass CGameState "battleline::GameState":
         CGameState() except +
@@ -127,6 +155,8 @@ cdef extern from "cpp/game_state.h":
         void undo() except +
         void determinize(int8_t player, uint64_t seed) except +
         int8_t random_playout(uint64_t seed) except +
+        CObservation observe(int8_t player) const
+        void sample_from_observation(const CObservation& obs, uint64_t seed) except +
 
 
 Card = np.int8
@@ -375,6 +405,33 @@ def judge_flag(first_cards, second_cards, board, turn_player: Player, first_comp
     return Player(c_judge_flag(flag, board, turn_player))
 
 
+def _format_position(state, hand_lines) -> str:
+    """GameState / Observation の盤面を文字列にする"""
+    def cards_str(cards):
+        return " ".join(card_to_str(c) for c in cards)
+
+    def owner_str(flag):
+        owner = state.get_flag_owner(flag)
+        return {c_FIRST: "<F", c_SECOND: "S>"}.get(owner, "  ")
+
+    lines = [
+        f"side to move: {player_to_str(state.side_to_move)}  "
+        f"deck: {state.deck_count}  result: {result_to_str(state.result)}",
+        f"{'First':>12} |flag| {'Second':<12}",
+    ]
+    for i in range(c_NUM_FLAGS):
+        first = cards_str(state.get_flag_cards(i, FIRST))
+        second = cards_str(state.get_flag_cards(i, SECOND))
+        lines.append(f"{first:>12} |{i + 1}{owner_str(i)}| {second:<12}")
+    for p, hand in hand_lines:
+        lines.append(f"hand {player_to_str(p):<6}: {hand}")
+    return "\n".join(lines)
+
+
+def _cards_str(bits) -> str:
+    return " ".join([card_to_str(c) for c in CardIterator(bits)])
+
+
 cdef class CardIterator:
     """64bit整数で表現されたカードの集合から, カードを番号の小さい順に列挙する"""
     cdef CCardIterator _it
@@ -570,23 +627,154 @@ cdef class GameState:
         self.copy_to(state)
         return state
 
+    def observe(self, player: Player | None = None) -> Observation:
+        """player (省略時は手番プレイヤー) から見える情報のみを取り出す"""
+        player = self.side_to_move if player is None else player
+        _check_player(player)
+        cdef Observation obs = Observation.__new__(Observation)
+        obs._obs = self._state.observe(player)
+        return obs
+
     def __str__(self) -> str:
-        def cards_str(cards):
-            return " ".join(card_to_str(c) for c in cards)
+        return _format_position(self, [(p, _cards_str(self._state.hand(p))) for p in (FIRST, SECOND)])
 
-        def owner_str(flag):
-            owner = self._state.flag_owner(flag)
-            return {c_FIRST: "<F", c_SECOND: "S>"}.get(owner, "  ")
 
-        lines = [
-            f"side to move: {player_to_str(self.side_to_move)}  "
-            f"deck: {self.deck_count}  result: {result_to_str(self.result)}",
-            f"{'First':>12} |flag| {'Second':<12}",
-        ]
-        for i in range(c_NUM_FLAGS):
-            first = cards_str(self.get_flag_cards(i, FIRST))
-            second = cards_str(self.get_flag_cards(i, SECOND))
-            lines.append(f"{first:>12} |{i + 1}{owner_str(i)}| {second:<12}")
-        for p in (FIRST, SECOND):
-            lines.append(f"hand {player_to_str(p):<6}: {cards_str(CardIterator(self._state.hand(p)))}")
-        return "\n".join(lines)
+cdef class Observation:
+    """あるプレイヤーから見える情報のみからなる局面. GameState.observe で生成する.
+
+    相手の手札と山札の中身は含まず, それらを合わせたカードの集合 (unseen_cards) と各枚数のみを持つ.
+    盤面に関するメソッドは GameState と同じ名前で利用できる"""
+    cdef CObservation _obs
+
+    def __init__(self):
+        raise TypeError("Observation cannot be created directly; use GameState.observe()")
+
+    @property
+    def player(self) -> Player:
+        """観測しているプレイヤー"""
+        return Player(self._obs.player)
+
+    @property
+    def side_to_move(self) -> Player:
+        return Player(self._obs.stm)
+
+    @property
+    def first_player(self) -> Player:
+        return Player(self._obs.first)
+
+    @property
+    def result(self) -> GameResult:
+        return GameResult(self._obs.game_result)
+
+    @property
+    def winner(self) -> Player:
+        return Player(self._obs.winner())
+
+    @property
+    def is_terminal(self) -> bool:
+        return self._obs.is_terminal()
+
+    @property
+    def is_my_turn(self) -> bool:
+        """観測しているプレイヤーの手番であり, かつ終局していないか"""
+        return self._obs.is_my_turn()
+
+    @property
+    def is_forced_termination(self) -> bool:
+        return self._obs.forced_termination
+
+    @property
+    def consecutive_pass_count(self) -> int:
+        return self._obs.consecutive_passes
+
+    @property
+    def deck_count(self) -> int:
+        return self._obs.deck_count
+
+    @property
+    def board_cards(self) -> np.uint64:
+        return np.uint64(self._obs.board)
+
+    @property
+    def hand(self) -> np.uint64:
+        """観測しているプレイヤーの手札"""
+        return np.uint64(self._obs.hand)
+
+    @property
+    def opponent_hand_count(self) -> int:
+        return self._obs.opponent_hand_count
+
+    @property
+    def unseen_cards(self) -> np.uint64:
+        """観測しているプレイヤーから見えないカード (相手の手札 + 山札)"""
+        return np.uint64(self._obs.unseen)
+
+    def get_hand(self, player: Player | None = None) -> np.uint64:
+        """観測しているプレイヤーの手札. 相手の手札は見えないため ValueError を送出する"""
+        if player is not None and player != self._obs.player:
+            raise ValueError("the opponent's hand is not visible")
+        return np.uint64(self._obs.hand)
+
+    def get_hand_count(self, player: Player) -> int:
+        _check_player(player)
+        return self._obs.hand_count(player)
+
+    def get_unseen_cards(self) -> np.uint64:
+        return np.uint64(self._obs.unseen)
+
+    def get_claimed_flags(self, player: Player) -> int:
+        _check_player(player)
+        return self._obs.claimed_flags(player)
+
+    def get_placeable_flags(self, player: Player) -> int:
+        _check_player(player)
+        return self._obs.placeable_flags(player)
+
+    def get_flag_owner(self, flag: int) -> Player:
+        _check_flag(flag)
+        return Player(self._obs.flag_owner(flag))
+
+    def get_flag_first_completer(self, flag: int) -> Player:
+        _check_flag(flag)
+        return Player(self._obs.flag_first_completer(flag))
+
+    def get_flag_cards(self, flag: int, player: Player) -> list:
+        _check_flag(flag)
+        _check_player(player)
+        return [Card(self._obs.flag_card(flag, player, i)) for i in range(self._obs.flag_card_count(flag, player))]
+
+    def get_flag_strength(self, flag: int, player: Player) -> int:
+        _check_flag(flag)
+        _check_player(player)
+        return self._obs.flag_strength(flag, player)
+
+    def get_legal_moves(self) -> np.ndarray:
+        """観測しているプレイヤーの合法手. 相手の手番や終局後は空の配列を返す"""
+        cdef int16_t[::1] view
+        out = np.empty(c_MAX_LEGAL_MOVES, dtype=np.int16)
+        view = out
+        n = self._obs.get_legal_moves(&view[0])
+        return out[:n]
+
+    def is_legal(self, move: Move) -> bool:
+        return bool(np.any(self.get_legal_moves() == move))
+
+    def sample_state(self, seed=None) -> GameState:
+        """この観測と矛盾しない局面を生成する. 見えないカードは相手の手札と山札にランダムに配分される.
+        生成した局面の undo の履歴は空になる"""
+        cdef GameState state = GameState.__new__(GameState, 0)
+        state._state.sample_from_observation(self._obs, _resolve_seed(seed))
+        return state
+
+    def __eq__(self, other) -> bool:
+        if not isinstance(other, Observation):
+            return NotImplemented
+        return self._obs == (<Observation>other)._obs
+
+    __hash__ = None
+
+    def __str__(self) -> str:
+        me = self._obs.player
+        opp = me ^ c_SECOND
+        hands = {me: _cards_str(self._obs.hand), opp: f"? x{self._obs.opponent_hand_count}"}
+        return _format_position(self, [(p, hands[p]) for p in (FIRST, SECOND)])

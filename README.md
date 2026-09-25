@@ -43,6 +43,8 @@ pybl/
     ├── formation.h/.cpp  # フォーメーションの判定と強さの計算
     ├── flag.h            # フラッグの状態
     ├── judge.h/.cpp      # フラッグの確保判定 (1)(2)(3)
+    ├── movegen.h         # 合法手の生成
+    ├── observation.h     # プレイヤーから見える情報
     ├── deck.h            # 山札
     ├── move.h            # 着手の表現とundo用の記録
     ├── game_state.h/.cpp # 対局状態 (配置, 判定, 補充, 合法手, undo, determinize)
@@ -66,17 +68,34 @@ print(state)
 print(pybl.result_to_str(state.result))
 ```
 
-探索では `play` と `undo` で局面を進めたり戻したりできます。不完全情報の探索 (ISMCTS など) では、`determinize` で相手の手札と山札を無作為に決め直した局面を用います。
+探索では `play` と `undo` で局面を進めたり戻したりできます。
+
+### プレイヤーから見える情報 (Observation)
+`GameState.observe(player)` で、そのプレイヤーから見える情報のみを持つ `Observation` を取り出せます。相手の手札と山札の中身は含まれず、それらを合わせたカードの集合 (`unseen_cards`) と各枚数のみが分かります。AIには `GameState` の代わりに `Observation` を渡すことで、見えないはずの情報を誤って使うことを防げます。
 
 ```python
-root = pybl.GameState(seed=0)
-me = root.side_to_move
-sim = pybl.GameState()
+state = pybl.GameState(seed=0)
+obs = state.observe(state.side_to_move)
 
-for i in range(1000):
-    root.copy_to(sim)          # copy() よりもオブジェクトの生成が少なく高速
-    sim.determinize(me, seed=i)
-    result = sim.random_playout(seed=i)
+print(obs)                        # 相手の手札は "? x7" のように枚数のみ表示される
+obs.get_legal_moves()             # 自分の手番であれば合法手 (相手の手番や終局後は空)
+obs.get_hand(obs.player)          # 自分の手札. 相手の手札を指定すると ValueError
+```
+
+不完全情報の探索 (ISMCTS など) では、`sample_state` で観測と矛盾しない局面 (相手の手札と山札を無作為に配分した `GameState`) を生成して用います。
+
+```python
+def choose_move(obs: pybl.Observation, num_samples: int = 1000) -> int:
+    me = obs.player
+    win = pybl.FIRST_WIN if me == pybl.FIRST else pybl.SECOND_WIN
+    moves = obs.get_legal_moves()
+    wins = [0] * len(moves)
+    for i in range(num_samples):
+        k = i % len(moves)
+        sim = obs.sample_state(seed=i)
+        sim.play(moves[k])
+        wins[k] += sim.random_playout(seed=i) == win
+    return moves[max(range(len(moves)), key=lambda k: wins[k])]
 ```
 
 ## 主なAPI
@@ -97,7 +116,22 @@ for i in range(1000):
 | `undo()` | 直前の `play` を取り消す |
 | `determinize(p, seed=None)` | p から見えないカードを、相手の手札と山札に無作為に再配分する (undo の履歴は破棄される) |
 | `random_playout(seed=None)` | 終局までランダムに着手し、結果を返す (この状態自体が終局まで進む) |
+| `observe(player=None)` | player (省略時は手番プレイヤー) から見える情報のみを持つ `Observation` を返す |
 | `copy()`, `copy_to(dest)` | 状態のコピー |
+
+### Observation
+`GameState.observe` で生成します。盤面に関するプロパティ・メソッド (`side_to_move`, `result`, `deck_count`, `board_cards`, `get_flag_cards`, `get_claimed_flags`, `get_placeable_flags` など) は `GameState` と同じ名前で利用できます。
+
+| メソッド・プロパティ | 説明 |
+|---|---|
+| `player` | 観測しているプレイヤー |
+| `hand`, `get_hand(player=None)` | 自分の手札。相手の手札を指定すると `ValueError` |
+| `opponent_hand_count`, `get_hand_count(p)` | 相手の手札の枚数、各プレイヤーの手札の枚数 |
+| `unseen_cards`, `get_unseen_cards()` | 見えないカード (相手の手札 + 山札) |
+| `is_my_turn` | 自分の手番であり、かつ終局していないか |
+| `get_legal_moves()`, `is_legal(m)` | 自分の合法手。相手の手番や終局後は空 |
+| `sample_state(seed=None)` | 観測と矛盾しない `GameState` を生成する (見えないカードは無作為に配分) |
+| `==` | 観測の比較。見えないカードの配分だけが異なる局面の観測は等しい |
 
 ### 関数
 | 関数 | 説明 |

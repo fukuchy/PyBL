@@ -55,4 +55,10 @@ namespace battleline
     constexpr uint16_t ALL_FLAGS = static_cast<uint16_t>((1u << NUM_FLAGS) - 1);
 
     constexpr int8_t to_opponent(int8_t player) { return player ^ 1; }
+
+    // 対局結果から勝者を返す. 引き分けまたは未終局なら NULL_PLAYER
+    constexpr int8_t result_to_winner(int8_t result)
+    {
+        return result == FIRST_WIN ? FIRST : result == SECOND_WIN ? SECOND : NULL_PLAYER;
+    }
 }
