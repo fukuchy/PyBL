@@ -118,36 +118,11 @@ namespace battleline
         check_victory();
     }
 
-    uint16_t GameState::placeable_flags(int8_t player) const
-    {
-        uint16_t mask = 0;
-        for (auto i = 0; i < NUM_FLAGS; i++)
-            if (this->flags[i].can_place(player))
-                mask |= static_cast<uint16_t>(1u << i);
-        return mask;
-    }
-
     int32_t GameState::get_legal_moves(Move* out) const
     {
         if (is_terminal())
             return 0;
-
-        auto n = 0;
-        auto placeable = placeable_flags(this->stm);
-        if (placeable)
-        {
-            for (CardIterator it(this->hands[this->stm]); !it.end();)
-            {
-                auto card = it.next();
-                for (auto i = 0; i < NUM_FLAGS; i++)
-                    if (placeable & (1u << i))
-                        out[n++] = make_move(card, i);
-            }
-        }
-
-        if (n == 0)
-            out[n++] = PASS_MOVE;
-        return n;
+        return generate_moves(this->flags, this->hands[this->stm], this->stm, out);
     }
 
     bool GameState::is_legal(Move move) const
@@ -324,6 +299,61 @@ namespace battleline
         this->deck.set_remaining(cards + hand_count, n - hand_count);
 
         this->history_size = 0;
+    }
+
+    Observation GameState::observe(int8_t player) const
+    {
+        Observation obs;
+        obs.player = player;
+        obs.stm = this->stm;
+        obs.first = this->first;
+        obs.game_result = this->game_result;
+        obs.forced_termination = this->forced_termination;
+        obs.consecutive_passes = this->consecutive_passes;
+        obs.hand = this->hands[player];
+        obs.unseen = unseen_cards(player);
+        obs.board = this->board;
+        obs.opponent_hand_count = hand_count(to_opponent(player));
+        obs.deck_count = this->deck.count();
+        for (auto p = 0; p < NUM_PLAYERS; p++)
+            obs.claimed[p] = this->claimed[p];
+        for (auto i = 0; i < NUM_FLAGS; i++)
+            obs.flags[i] = this->flags[i];
+        return obs;
+    }
+
+    void GameState::sample_from_observation(const Observation& obs, uint64_t seed)
+    {
+        if (obs.player != FIRST && obs.player != SECOND)
+            throw std::invalid_argument("invalid observer");
+        if (popcount(obs.unseen) != obs.opponent_hand_count + obs.deck_count)
+            throw std::invalid_argument("inconsistent observation");
+
+        for (auto i = 0; i < NUM_FLAGS; i++)
+            this->flags[i] = obs.flags[i];
+        for (auto p = 0; p < NUM_PLAYERS; p++)
+            this->claimed[p] = obs.claimed[p];
+        this->board = obs.board;
+        this->stm = obs.stm;
+        this->first = obs.first;
+        this->game_result = obs.game_result;
+        this->forced_termination = obs.forced_termination;
+        this->consecutive_passes = obs.consecutive_passes;
+
+        // 見えないカードを仮に相手の手札と山札に分けてから, determinize で無作為に再配分する
+        int8_t cards[NUM_CARDS];
+        auto n = 0;
+        for (CardIterator it(obs.unseen); !it.end();)
+            cards[n++] = it.next();
+
+        auto opponent = to_opponent(obs.player);
+        this->hands[obs.player] = obs.hand;
+        this->hands[opponent] = 0ULL;
+        for (auto i = 0; i < obs.opponent_hand_count; i++)
+            this->hands[opponent] |= card_bit(cards[i]);
+        this->deck.set(cards + obs.opponent_hand_count, obs.deck_count);
+
+        determinize(obs.player, seed);
     }
 
     int8_t GameState::random_playout(uint64_t seed)

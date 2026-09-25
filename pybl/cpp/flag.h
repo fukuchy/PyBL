@@ -16,6 +16,8 @@ namespace battleline
         int8_t owner;            // フラッグを確保したプレイヤー. 未確保なら NULL_PLAYER
         int8_t first_completer;  // 先に3枚目を置いてフォーメーションを完成させたプレイヤー
 
+        bool operator==(const Flag&) const = default;
+
         void clear()
         {
             for (auto p = 0; p < NUM_PLAYERS; p++)
