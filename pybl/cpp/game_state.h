@@ -104,6 +104,7 @@ namespace battleline
         MoveRecord history[MAX_GAME_LENGTH];
         int32_t history_size;
 
+        // 未確保のフラッグを (1), (2), (3) の段階ごとに確保し, 段階ごとに勝利条件を確認する. この手で確保されたフラッグを返す
         uint16_t judge_flags(int8_t turn_player);
         void check_victory();
         void force_terminate();

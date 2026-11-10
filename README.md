@@ -112,7 +112,7 @@ def choose_move(obs: pybl.Observation, num_samples: int = 1000) -> int:
 | `get_flag_cards(i, p)`, `get_flag_owner(i)`, `get_flag_first_completer(i)`, `get_flag_strength(i, p)` | フラッグ i の配置カード、確保者、先に完成させたプレイヤー、フォーメーションの強さ |
 | `get_claimed_flags(p)`, `get_placeable_flags(p)` | 確保済み・配置可能なフラッグ (ビットマスク) |
 | `get_legal_moves()`, `is_legal(m)` | 合法手 (`numpy.ndarray[int16]`)。配置できなければ `[PASS_MOVE]`、終局後は空 |
-| `play(m)` | 配置 → 判定 → 勝利条件の確認 → 補充 の順に1手進め、確保されたフラッグ (ビットマスク) を返す。非合法手は `ValueError` |
+| `play(m)` | 配置 → 判定と勝利条件の確認 ((1)、(2)、(3) の段階ごとに確認し、成立した時点で終局) → 補充 の順に1手進め、確保されたフラッグ (ビットマスク) を返す。非合法手は `ValueError` |
 | `undo()` | 直前の `play` を取り消す |
 | `determinize(p, seed=None)` | p から見えないカードを、相手の手札と山札に無作為に再配分する (undo の履歴は破棄される) |
 | `random_playout(seed=None)` | 終局までランダムに着手し、結果を返す (この状態自体が終局まで進む) |

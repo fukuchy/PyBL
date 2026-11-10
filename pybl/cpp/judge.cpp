@@ -7,6 +7,13 @@ namespace battleline
 {
     int8_t judge_flag(const Flag& flag, CardSet board, int8_t turn_player)
     {
+        int8_t stage;
+        return judge_flag(flag, board, turn_player, stage);
+    }
+
+    int8_t judge_flag(const Flag& flag, CardSet board, int8_t turn_player, int8_t& stage)
+    {
+        stage = 0;
         auto full0 = flag.is_full(FIRST);
         auto full1 = flag.is_full(SECOND);
 
@@ -15,6 +22,7 @@ namespace battleline
         {
             auto s0 = flag.strength(FIRST);
             auto s1 = flag.strength(SECOND);
+            stage = 1;
             if (s0 > s1)
                 return FIRST;
             if (s1 > s0)
@@ -44,11 +52,17 @@ namespace battleline
         //     同じ強さになっても先に完成させた側が確保するため, 相手の最強が自分以下なら確保できる.
         //     相手がフォーメーションを完成できない (best == NULL_STRENGTH) 場合も確保できる
         if (complete == turn_player && best <= strength)
+        {
+            stage = 2;
             return complete;
+        }
 
         // (3) 引き分け確定. どう配置しても同じ強さにしかならない場合, 先に完成させた側が確保する
         if (best == strength && worst_completion(flag.cards[incomplete], flag.count[incomplete], available) == strength)
+        {
+            stage = 3;
             return flag.first_completer;
+        }
 
         return NULL_PLAYER;
     }

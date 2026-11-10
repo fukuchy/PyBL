@@ -167,9 +167,9 @@ namespace battleline
         }
 
         // 配置直後 (パスした場合はパスした時点) で, 補充より前に判定する
+        // 勝利条件の確認も judge_flags の中で段階ごとに行う
         auto claimed_now = judge_flags(player);
         record.claimed_flags = claimed_now;
-        check_victory();
 
         // ルール外の保護: 両者が連続でパスした場合, 以降状態が変化しないため強制的に終局させる
         if (!is_terminal() && this->consecutive_passes >= NUM_PLAYERS)
@@ -190,19 +190,33 @@ namespace battleline
 
     uint16_t GameState::judge_flags(int8_t turn_player)
     {
-        uint16_t claimed_now = 0;
+        // 判定は確保の状態に依存しないため, 全てのフラッグを先に判定しておく
+        int8_t owners[NUM_FLAGS];
+        int8_t stages[NUM_FLAGS];
         for (auto i = 0; i < NUM_FLAGS; i++)
         {
-            if (this->flags[i].is_claimed())
-                continue;
+            owners[i] = NULL_PLAYER;
+            stages[i] = 0;
+            if (!this->flags[i].is_claimed())
+                owners[i] = judge_flag(this->flags[i], this->board, turn_player, stages[i]);
+        }
 
-            auto owner = judge_flag(this->flags[i], this->board, turn_player);
-            if (owner == NULL_PLAYER)
-                continue;
-
-            this->flags[i].owner = owner;
-            this->claimed[owner] |= static_cast<uint16_t>(1u << i);
-            claimed_now |= static_cast<uint16_t>(1u << i);
+        // (1), (2), (3) の段階ごとに確保し, その都度勝利条件を確認する.
+        // 勝利条件が成立した時点でゲームは終了し, 以降の段階の確保は行わない
+        uint16_t claimed_now = 0;
+        for (int8_t stage = 1; stage <= 3; stage++)
+        {
+            for (auto i = 0; i < NUM_FLAGS; i++)
+            {
+                if (owners[i] == NULL_PLAYER || stages[i] != stage)
+                    continue;
+                this->flags[i].owner = owners[i];
+                this->claimed[owners[i]] |= static_cast<uint16_t>(1u << i);
+                claimed_now |= static_cast<uint16_t>(1u << i);
+            }
+            check_victory();
+            if (is_terminal())
+                break;
         }
         return claimed_now;
     }

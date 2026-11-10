@@ -153,3 +153,43 @@ def test_placement_after_set_position():
     assert state.get_flag_owner(4) == F
     assert state.result == pybl.FIRST_WIN
     assert not state.is_forced_termination
+
+
+def comparison_win_before_proof_position() -> dict:
+    """先手が B4 をフラッグ6 (index 5) に置くと, (1) で後手がフラッグ6 を確保して 5-6-7 の連続3本で勝利する.
+
+    同じ配置の後, 先手はフラッグ1 (index 0) を (2) 証明で確保でき, 確保すれば 1-2-3 の連続3本になるが,
+    (1) の段階で後手の勝利が決まるため, (2) の判定は行われない
+    """
+    explicit_flags = {0: (cards("Y8", "Y9", "Y10"), cards("G9")),
+                      5: (cards("R1", "O2"), cards("P5", "P6", "P7"))}
+    first_hand, second_hand = cards("B4"), cards("B5", "B6")
+    used = {int(c) for c in first_hand + second_hand}
+    for first_cards, second_cards in explicit_flags.values():
+        used |= {int(c) for c in first_cards + second_cards}
+    deck = [c for c in range(pybl.NUM_CARDS) if c not in used][-6:]     # 他のフラッグ7本に配れない6枚は山札に置く
+    return build_position(explicit_flags=explicit_flags, first_hand=first_hand, second_hand=second_hand,
+                          deck=deck, owners=[None, F, F, S, S, None, S, F, F])
+
+
+def test_comparison_win_ends_game_before_proof():
+    state = pybl.GameState(seed=0)
+    state.set_position(**comparison_win_before_proof_position())
+    assert not state.is_terminal
+    claimed = state.play(pybl.make_move(pybl.parse_card_str("B4"), 5))
+    assert state.result == pybl.SECOND_WIN
+    assert claimed == 1 << 5
+    assert state.get_flag_owner(0) == pybl.NULL_PLAYER
+    state.undo()
+    assert not state.is_terminal and state.get_flag_owner(5) == pybl.NULL_PLAYER
+
+
+def test_proof_still_claimed_when_no_one_wins_by_comparison():
+    """(1) で勝利条件が成立しなければ, 同じ手で (2) の確保と勝利の確認が行われる"""
+    position = comparison_win_before_proof_position()
+    position["owners"] = [None, F, F, S, F, None, S, F, S]      # 後手はフラッグ6 を確保しても連続3本にならない
+    state = pybl.GameState(seed=0)
+    state.set_position(**position)
+    claimed = state.play(pybl.make_move(pybl.parse_card_str("B4"), 5))
+    assert claimed == (1 << 5) | (1 << 0)
+    assert state.result == pybl.FIRST_WIN
